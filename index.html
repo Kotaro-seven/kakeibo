@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+  <meta name="description" content="ザックリ家計簿 - ズボラでも続く、シンプル家計簿アプリ">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="ザックリ家計簿">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#f5f7fa">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon-512.png">
+  <title>ザックリ家計簿</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Noto+Sans+JP:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ========== HEADER ========== -->
+  <header id="app-header">
+    <div class="header-top">
+      <h1 class="app-title">💸 ザックリ家計簿</h1>
+      <button id="settings-btn" class="icon-btn" aria-label="設定">⚙️</button>
+    </div>
+    <div class="budget-bar-container">
+      <div class="budget-info">
+        <span class="budget-label">今月の支出</span>
+        <div class="budget-fraction">
+          <span id="budget-spent-amount" class="budget-numerator">¥0</span>
+          <span class="budget-slash">/</span>
+          <span id="budget-total-display" class="budget-denominator" title="クリックして予算を変更">¥0</span>
+          <div id="budget-total-edit" class="budget-edit-wrapper" style="display:none;">
+            <span class="budget-edit-yen">¥</span>
+            <input type="text" id="budget-inline-input" class="budget-inline-input" inputmode="numeric" placeholder="予算額">
+          </div>
+        </div>
+      </div>
+      <div class="progress-track">
+        <div id="budget-progress" class="progress-fill"></div>
+      </div>
+      <div class="budget-detail">
+        <span id="budget-remaining-label">残り ¥0</span>
+        <span id="budget-pct-label"></span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ========== TAB NAV ========== -->
+  <nav id="tab-nav">
+    <button class="tab-btn active" data-tab="input">✏️ 記録</button>
+    <button class="tab-btn" data-tab="dashboard">📊 分析</button>
+    <button class="tab-btn" data-tab="history">📋 履歴</button>
+  </nav>
+
+  <!-- ========== INPUT TAB ========== -->
+  <main id="tab-input" class="tab-content active">
+    <!-- Type Toggle -->
+    <div class="type-toggle">
+      <button id="type-expense" class="type-btn active" data-type="expense">支出</button>
+      <button id="type-income" class="type-btn" data-type="income">収入</button>
+    </div>
+
+    <!-- Category Grid -->
+    <section id="category-section">
+      <h2 class="section-title">カテゴリを選ぶ</h2>
+      <div id="category-grid" class="category-grid">
+        <!-- Populated by JS -->
+      </div>
+    </section>
+
+    <!-- Amount Input -->
+    <section id="amount-section" class="amount-section">
+      <div class="amount-display-wrapper">
+        <span class="yen-prefix">¥</span>
+        <input type="text" id="amount-input" class="amount-input" placeholder="0" inputmode="numeric" autocomplete="off">
+      </div>
+      <div class="quick-amounts">
+        <button class="quick-btn" data-amount="500">500</button>
+        <button class="quick-btn" data-amount="1000">1,000</button>
+        <button class="quick-btn" data-amount="3000">3,000</button>
+        <button class="quick-btn" data-amount="5000">5,000</button>
+        <button class="quick-btn" data-amount="10000">10,000</button>
+      </div>
+    </section>
+
+    <!-- Memo -->
+    <section class="memo-section">
+      <input type="text" id="memo-input" class="memo-input" placeholder="メモ（任意）" maxlength="50">
+    </section>
+
+    <!-- Save Button -->
+    <button id="save-btn" class="save-btn" disabled>
+      <span class="save-btn-text">記録する</span>
+      <span class="save-btn-icon">→</span>
+    </button>
+
+    <!-- Recent Records -->
+    <section id="recent-section" class="recent-section">
+      <h2 class="section-title">最近の記録</h2>
+      <div id="recent-list" class="recent-list">
+        <!-- Populated by JS -->
+      </div>
+    </section>
+  </main>
+
+  <!-- ========== DASHBOARD TAB ========== -->
+  <main id="tab-dashboard" class="tab-content">
+    <div class="dashboard-header">
+      <button id="prev-month" class="month-nav-btn">◀</button>
+      <h2 id="dashboard-month" class="dashboard-month">2026年3月</h2>
+      <button id="next-month" class="month-nav-btn">▶</button>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="summary-cards">
+      <div class="summary-card income-card">
+        <span class="card-label">💰 収入</span>
+        <span id="total-income" class="card-value">¥0</span>
+      </div>
+      <div class="summary-card expense-card">
+        <span class="card-label">💸 支出</span>
+        <span id="total-expense" class="card-value">¥0</span>
+      </div>
+      <div class="summary-card balance-card">
+        <span class="card-label">📈 収支</span>
+        <span id="total-balance" class="card-value">¥0</span>
+      </div>
+    </div>
+
+    <!-- Category Breakdown -->
+    <section class="chart-section">
+      <h3 class="chart-title">カテゴリ別の支出</h3>
+      <div class="chart-container">
+        <canvas id="pie-chart" width="280" height="280"></canvas>
+        <div id="pie-legend" class="pie-legend"></div>
+      </div>
+    </section>
+
+    <!-- Daily Bar Chart -->
+    <section class="chart-section">
+      <h3 class="chart-title">日別の支出</h3>
+      <div class="bar-chart-wrapper">
+        <canvas id="bar-chart" width="600" height="200"></canvas>
+      </div>
+    </section>
+
+    <!-- Spending Score -->
+    <section class="score-section">
+      <h3 class="chart-title">今月の節約スコア</h3>
+      <div id="score-display" class="score-display">
+        <div class="score-circle">
+          <canvas id="score-canvas" width="160" height="160"></canvas>
+          <span id="score-value" class="score-value">--</span>
+        </div>
+        <p id="score-message" class="score-message">予算を設定すると表示されます</p>
+      </div>
+    </section>
+  </main>
+
+  <!-- ========== HISTORY TAB ========== -->
+  <main id="tab-history" class="tab-content">
+    <div class="history-header">
+      <button id="hist-prev-month" class="month-nav-btn">◀</button>
+      <h2 id="history-month" class="dashboard-month">2026年3月</h2>
+      <button id="hist-next-month" class="month-nav-btn">▶</button>
+    </div>
+    <div id="history-list" class="history-list">
+      <!-- Populated by JS -->
+    </div>
+    <div id="history-empty" class="empty-state">
+      <span class="empty-icon">📭</span>
+      <p>まだ記録がありません</p>
+    </div>
+  </main>
+
+  <!-- ========== SETTINGS MODAL ========== -->
+  <div id="settings-modal" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>⚙️ 設定</h2>
+        <button id="close-settings" class="icon-btn close-btn">✕</button>
+      </div>
+
+      <div class="setting-group">
+        <label class="setting-label">月の予算</label>
+        <div class="setting-input-wrapper">
+          <span class="yen-prefix-sm">¥</span>
+          <input type="text" id="budget-input" class="setting-input" placeholder="例: 200000" inputmode="numeric">
+        </div>
+        <div class="preset-budgets">
+          <button class="preset-btn" data-budget="100000">10万</button>
+          <button class="preset-btn" data-budget="150000">15万</button>
+          <button class="preset-btn" data-budget="200000">20万</button>
+          <button class="preset-btn" data-budget="250000">25万</button>
+          <button class="preset-btn" data-budget="300000">30万</button>
+        </div>
+      </div>
+
+      <div class="setting-group">
+        <label class="setting-label">データ管理</label>
+        <div class="setting-actions">
+          <button id="export-btn" class="action-btn export-btn">📥 データをエクスポート</button>
+          <button id="reset-btn" class="action-btn danger-btn">🗑️ 全データをリセット</button>
+        </div>
+      </div>
+
+      <div class="setting-group">
+        <label class="setting-label">🔗 合言葉（データ共有コード）</label>
+        <div class="user-code-display">
+          <span id="user-code-text" class="user-code-text">------</span>
+          <button id="copy-code-btn" class="action-btn">📋 コピー</button>
+        </div>
+        <p class="setting-hint">他のブラウザや端末でこのコードを入力すると同じデータにアクセスできます</p>
+      </div>
+
+      <button id="save-settings" class="save-btn settings-save-btn">
+        <span class="save-btn-text">保存する</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ========== TOAST ========== -->
+  <div id="toast" class="toast"></div>
+
+  <!-- ========== CONFIRM DIALOG ========== -->
+  <div id="confirm-dialog" class="modal-overlay">
+    <div class="confirm-content">
+      <p id="confirm-message" class="confirm-message"></p>
+      <div class="confirm-actions">
+        <button id="confirm-cancel" class="action-btn">キャンセル</button>
+        <button id="confirm-ok" class="action-btn danger-btn">削除する</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== SETUP MODAL ========== -->
+  <div id="setup-modal" class="modal-overlay">
+    <div class="modal-content setup-content">
+      <h2 class="setup-title">💸 ザックリ家計簿</h2>
+      <p class="setup-subtitle">はじめましょう！</p>
+
+      <button id="setup-new-btn" class="save-btn" style="margin-bottom:12px;">
+        <span class="save-btn-text">🌟 新しく始める</span>
+      </button>
+
+      <div class="setup-divider"><span>または</span></div>
+
+      <p class="setup-label">合言葉を入力してデータを引き継ぐ</p>
+      <div class="setup-code-input-wrapper">
+        <input type="text" id="setup-code-input" class="setup-code-input" placeholder="6桁のコード" maxlength="6" autocomplete="off" spellcheck="false">
+        <button id="setup-join-btn" class="action-btn" style="font-weight:700;color:var(--accent-cyan)">接続</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <script src="app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(() => {});
+      });
+    }
+  </script>
+</body>
+</html>
