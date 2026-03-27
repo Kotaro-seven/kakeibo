@@ -204,6 +204,39 @@
   <!-- ===== TOAST ===== -->
   <div id="toast" class="toast"></div>
 
+  <!-- ===== EDIT MODAL ===== -->
+  <div id="edit-modal" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>✏️ 記録を編集</h2>
+        <button id="close-edit" class="icon-btn close-btn">✕</button>
+      </div>
+      <input type="hidden" id="edit-record-id">
+      <div class="edit-category-display" id="edit-category-display"></div>
+      <div class="setting-group">
+        <label class="setting-label">金額</label>
+        <div class="setting-input-wrapper">
+          <span class="yen-prefix-sm">¥</span>
+          <input type="text" id="edit-amount" class="setting-input" inputmode="numeric">
+        </div>
+      </div>
+      <div class="setting-group">
+        <label class="setting-label">メモ</label>
+        <input type="text" id="edit-memo" class="memo-input" placeholder="メモ（任意）" maxlength="50">
+      </div>
+      <div class="setting-group">
+        <label class="setting-label">日付</label>
+        <input type="date" id="edit-date" class="date-input" style="width:100%">
+      </div>
+      <div class="edit-actions">
+        <button id="edit-delete-btn" class="action-btn danger-btn">🗑️ 削除</button>
+        <button id="edit-save-btn" class="save-btn edit-save-btn">
+          <span class="save-btn-text">保存する</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- ===== CONFIRM DIALOG ===== -->
   <div id="confirm-dialog" class="modal-overlay">
     <div class="confirm-content">

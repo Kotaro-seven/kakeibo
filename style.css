@@ -901,7 +901,7 @@ body > * {
   border: 1px solid var(--glass-border);
   gap: 10px;
   transition: var(--transition-fast);
-  cursor: default;
+  cursor: pointer;
 }
 
 .history-item:hover { background: var(--bg-card-hover); }
@@ -938,23 +938,16 @@ body > * {
 .history-amount.expense { color: var(--accent-pink); }
 .history-amount.income { color: var(--accent-green); }
 
-.history-delete-btn {
-  background: none;
-  border: none;
+.history-edit-icon {
   color: var(--text-muted);
-  cursor: pointer;
-  padding: 4px 6px;
-  border-radius: var(--radius-sm);
-  font-size: 0.9rem;
+  font-size: 1.1rem;
+  font-weight: 300;
+  margin-left: 4px;
   transition: var(--transition-fast);
-  opacity: 0;
 }
 
-.history-item:hover .history-delete-btn { opacity: 1; }
-
-.history-delete-btn:hover {
-  color: var(--accent-red);
-  background: rgba(248, 113, 113, 0.15);
+.history-item:hover .history-edit-icon {
+  color: var(--accent-cyan);
 }
 
 .empty-state {
@@ -970,6 +963,53 @@ body > * {
 }
 
 .empty-state p { font-size: 0.9rem; }
+
+/* ---- Edit Modal ---- */
+.edit-category-display {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--bg-input);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  margin-bottom: 20px;
+}
+
+.edit-category-emoji { font-size: 1.4rem; }
+
+.edit-category-label {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.edit-category-type {
+  font-size: 0.7rem;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  margin-left: auto;
+}
+
+.edit-category-type.expense {
+  background: rgba(244, 114, 182, 0.15);
+  color: var(--accent-pink);
+}
+
+.edit-category-type.income {
+  background: rgba(52, 211, 153, 0.15);
+  color: var(--accent-green);
+}
+
+.edit-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.edit-actions .action-btn { flex: 1; }
+.edit-actions .edit-save-btn { flex: 2; }
 
 /* ---- Modal ---- */
 .modal-overlay {
@@ -1310,7 +1350,4 @@ body > * {
   }
 }
 
-/* ---- Mobile Delete (touch) ---- */
-@media (hover: none) {
-  .history-delete-btn { opacity: 0.6; }
-}
+

@@ -175,6 +175,17 @@
     }
   }
 
+  async function updateRecordInFirestore(record) {
+    setSyncStatus('syncing');
+    try {
+      await getRecordsRef().doc(record.id).set(record);
+      setSyncStatus('synced');
+    } catch (e) {
+      console.error('Record update error:', e);
+      setSyncStatus('error');
+    }
+  }
+
   function startRecordsListener() {
     if (unsubRecords) unsubRecords();
 
@@ -356,6 +367,16 @@
       });
     });
 
+    // Edit modal
+    $('#close-edit').addEventListener('click', closeEditModal);
+    $('#edit-save-btn').addEventListener('click', saveEdit);
+    $('#edit-delete-btn').addEventListener('click', deleteFromEditModal);
+    $('#edit-amount').addEventListener('input', () => {
+      let v = $('#edit-amount').value.replace(/[^\d]/g, '');
+      if (v.length > 10) v = v.slice(0, 10);
+      $('#edit-amount').value = v ? Number(v).toLocaleString() : '';
+    });
+
     // Export & Reset
     $('#export-btn').addEventListener('click', exportData);
     $('#reset-btn').addEventListener('click', () => {
@@ -384,6 +405,7 @@
 
     // Confirm
     $('#confirm-cancel').addEventListener('click', closeConfirm);
+    $('#confirm-ok').addEventListener('click', handleConfirmOk);
   }
 
   /* ---- Tab ---- */
@@ -861,7 +883,7 @@
               </div>
               <div class="history-right">
                 <span class="history-amount ${r.type}">${sign}¥${r.amount.toLocaleString()}</span>
-                <button class="history-delete-btn" data-id="${r.id}" title="削除">🗑</button>
+                <span class="history-edit-icon">›</span>
               </div>
             </div>
           `;
@@ -869,16 +891,9 @@
       </div>
     `).join('');
 
-    listEl.querySelectorAll('.history-delete-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const id = btn.dataset.id;
-        showConfirm('この記録を削除しますか？', () => {
-          state.records.delete(id);
-          deleteRecordFromFirestore(id);
-          updateAll();
-          showToast('🗑️ 記録を削除しました');
-        });
+    listEl.querySelectorAll('.history-item').forEach(item => {
+      item.addEventListener('click', () => {
+        openEditModal(item.dataset.id);
       });
     });
   }
@@ -887,6 +902,74 @@
     const d = state.historyMonth;
     state.historyMonth = new Date(d.getFullYear(), d.getMonth() + dir, 1);
     updateHistory();
+  }
+
+  /* ---- Edit Modal ---- */
+  function openEditModal(id) {
+    const record = state.records.get(id);
+    if (!record) return;
+
+    $('#edit-record-id').value = id;
+    $('#edit-amount').value = record.amount.toLocaleString();
+    $('#edit-memo').value = record.memo || '';
+
+    // Set date
+    const d = new Date(record.date);
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    $('#edit-date').value = dateStr;
+
+    // Show category
+    const typeLabel = record.type === 'expense' ? '支出' : '収入';
+    $('#edit-category-display').innerHTML = `
+      <span class="edit-category-emoji">${record.emoji}</span>
+      <span class="edit-category-label">${record.label}</span>
+      <span class="edit-category-type ${record.type}">${typeLabel}</span>
+    `;
+
+    $('#edit-modal').classList.add('show');
+  }
+
+  function closeEditModal() {
+    $('#edit-modal').classList.remove('show');
+  }
+
+  function saveEdit() {
+    const id = $('#edit-record-id').value;
+    const record = state.records.get(id);
+    if (!record) return;
+
+    const newAmount = parseAmount($('#edit-amount').value);
+    if (newAmount <= 0) {
+      showToast('⚠️ 金額を入力してください');
+      return;
+    }
+
+    const dateVal = $('#edit-date').value;
+    const dateObj = new Date(dateVal + 'T12:00:00');
+
+    const updated = {
+      ...record,
+      amount: newAmount,
+      memo: $('#edit-memo').value.trim(),
+      date: dateObj.toISOString(),
+    };
+
+    state.records.set(id, updated);
+    updateRecordInFirestore(updated);
+    updateAll();
+    closeEditModal();
+    showToast('✅ 記録を更新しました');
+  }
+
+  function deleteFromEditModal() {
+    const id = $('#edit-record-id').value;
+    closeEditModal();
+    showConfirm('この記録を削除しますか？', () => {
+      state.records.delete(id);
+      deleteRecordFromFirestore(id);
+      updateAll();
+      showToast('🗑️ 記録を削除しました');
+    });
   }
 
   /* ---- Settings ---- */
@@ -946,13 +1029,12 @@
     $('#confirm-message').textContent = msg;
     $('#confirm-dialog').classList.add('show');
     confirmCallback = onConfirm;
-    const okBtn = $('#confirm-ok');
-    const newOk = okBtn.cloneNode(true);
-    okBtn.parentNode.replaceChild(newOk, okBtn);
-    newOk.addEventListener('click', () => {
-      closeConfirm();
-      if (confirmCallback) confirmCallback();
-    });
+  }
+
+  function handleConfirmOk() {
+    const cb = confirmCallback;
+    closeConfirm();
+    if (cb) cb();
   }
 
   function closeConfirm() {
