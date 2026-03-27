@@ -1,57 +1,36 @@
 /* ================================================
-   ザックリ家計簿 - Service Worker
+   ザックリ家計簿 v2 - Service Worker
    ================================================ */
+const CACHE_NAME = 'zakkuri-v3';
+const ASSETS = ['./', './index.html', './style.css', './app.js', './icon-512.png', './manifest.json'];
 
-const CACHE_NAME = 'zakkuri-kakeibo-v2';
-const ASSETS_TO_CACHE = [
-  './',
-  './index.html',
-  './style.css',
-  './app.js',
-  './icon-512.png',
-  './manifest.json'
-];
-
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS_TO_CACHE))
-  );
+self.addEventListener('install', (e) => {
+  e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(ASSETS)));
   self.skipWaiting();
 });
 
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
-    )
-  );
+self.addEventListener('activate', (e) => {
+  e.waitUntil(caches.keys().then(keys =>
+    Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
+  ));
   self.clients.claim();
 });
 
-self.addEventListener('fetch', (event) => {
-  if (event.request.method !== 'GET') return;
-
-  const url = event.request.url;
-
-  // Never cache Firebase/Firestore requests
-  if (url.includes('googleapis.com') ||
-      url.includes('firestore') ||
-      url.includes('firebase') ||
-      url.includes('gstatic.com/firebasejs')) {
-    return;
-  }
-
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const fetchPromise = fetch(event.request).then((response) => {
-        if (response && response.status === 200) {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+self.addEventListener('fetch', (e) => {
+  if (e.request.method !== 'GET') return;
+  const url = e.request.url;
+  if (url.includes('googleapis.com') || url.includes('firestore') ||
+      url.includes('firebase') || url.includes('gstatic.com/firebasejs')) return;
+  e.respondWith(
+    caches.match(e.request).then(cached => {
+      const network = fetch(e.request).then(res => {
+        if (res && res.status === 200) {
+          const clone = res.clone();
+          caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
         }
-        return response;
+        return res;
       }).catch(() => cached);
-
-      return cached || fetchPromise;
+      return cached || network;
     })
   );
 });

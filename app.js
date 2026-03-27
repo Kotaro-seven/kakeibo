@@ -1,11 +1,18 @@
 /* ================================================
-   ザックリ家計簿 - Application Logic (Firebase版)
+   ザックリ家計簿 v2 - Firestore Subcollection Architecture
+   ================================================
+   Key change: Each record is an independent Firestore document
+   in a subcollection, eliminating array-overwrite sync issues.
+
+   Structure:
+     households/{code}           → { budget, createdAt, updatedAt }
+     households/{code}/records/  → { type, categoryId, ... }
    ================================================ */
 
 (function () {
   'use strict';
 
-  // ---- Firebase Config ----
+  /* ---- Firebase ---- */
   const firebaseConfig = {
     apiKey: "AIzaSyBPJcEzV2LD8z15d8HXCWV7Px52Quh2rWo",
     authDomain: "zaku-kake.firebaseapp.com",
@@ -18,33 +25,37 @@
   firebase.initializeApp(firebaseConfig);
   const db = firebase.firestore();
 
-  // ---- Categories ----
+  // Enable offline persistence (silent fail OK)
+  db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
+
+  /* ---- Categories ---- */
   const EXPENSE_CATEGORIES = [
-    { id: 'food', emoji: '🍔', label: '食費', color: '#fb923c' },
-    { id: 'supermarket', emoji: '🛒', label: 'スーパー', color: '#4ade80' },
-    { id: 'eating_out', emoji: '🍽️', label: '外食', color: '#f97316' },
-    { id: 'drink', emoji: '🍺', label: '飲み代', color: '#facc15' },
-    { id: 'housing', emoji: '🏠', label: '家賃', color: '#60a5fa' },
-    { id: 'transport', emoji: '🚃', label: '交通費', color: '#34d399' },
-    { id: 'entertainment', emoji: '🎮', label: '娯楽', color: '#a855f7' },
-    { id: 'clothing', emoji: '👕', label: '衣服', color: '#f472b6' },
-    { id: 'medical', emoji: '💊', label: '医療', color: '#f87171' },
-    { id: 'telecom', emoji: '📱', label: '通信費', color: '#38bdf8' },
-    { id: 'other', emoji: '🔧', label: 'その他', color: '#94a3b8' },
+    { id: 'food',          emoji: '🍔', label: '食費',   color: '#fb923c' },
+    { id: 'supermarket',   emoji: '🛒', label: 'スーパー', color: '#4ade80' },
+    { id: 'eating_out',    emoji: '🍽️', label: '外食',   color: '#f97316' },
+    { id: 'drink',         emoji: '🍺', label: '飲み代', color: '#fbbf24' },
+    { id: 'housing',       emoji: '🏠', label: '家賃',   color: '#60a5fa' },
+    { id: 'transport',     emoji: '🚃', label: '交通費', color: '#34d399' },
+    { id: 'entertainment', emoji: '🎮', label: '娯楽',   color: '#a855f7' },
+    { id: 'clothing',      emoji: '👕', label: '衣服',   color: '#f472b6' },
+    { id: 'medical',       emoji: '💊', label: '医療',   color: '#f87171' },
+    { id: 'telecom',       emoji: '📱', label: '通信費', color: '#38bdf8' },
+    { id: 'daily',         emoji: '🧴', label: '日用品', color: '#a3e635' },
+    { id: 'other',         emoji: '🔧', label: 'その他', color: '#94a3b8' },
   ];
 
   const INCOME_CATEGORIES = [
-    { id: 'salary', emoji: '💼', label: '給料', color: '#10b981' },
-    { id: 'bonus', emoji: '🎁', label: 'ボーナス', color: '#facc15' },
-    { id: 'sidejob', emoji: '💻', label: '副業', color: '#60a5fa' },
-    { id: 'investment', emoji: '📈', label: '投資', color: '#a855f7' },
-    { id: 'refund', emoji: '🔄', label: '返金', color: '#38bdf8' },
-    { id: 'other_in', emoji: '💰', label: 'その他', color: '#94a3b8' },
+    { id: 'salary',     emoji: '💼', label: '給料',   color: '#10b981' },
+    { id: 'bonus',      emoji: '🎁', label: 'ボーナス', color: '#fbbf24' },
+    { id: 'sidejob',    emoji: '💻', label: '副業',   color: '#60a5fa' },
+    { id: 'investment', emoji: '📈', label: '投資',   color: '#a855f7' },
+    { id: 'refund',     emoji: '🔄', label: '返金',   color: '#38bdf8' },
+    { id: 'other_in',   emoji: '💰', label: 'その他', color: '#94a3b8' },
   ];
 
-  // ---- State ----
+  /* ---- State ---- */
   let state = {
-    records: [],
+    records: new Map(),          // id → record object
     budget: 0,
     selectedCategory: null,
     entryType: 'expense',
@@ -53,71 +64,143 @@
     userCode: null,
   };
 
-  let unsubscribeFirestore = null;
-  let saveTimeout = null;
+  let unsubMeta = null;
+  let unsubRecords = null;
 
-  // ---- LocalStorage (for user code only) ----
-  const CODE_KEY = 'zakkuri_user_code';
+  /* ---- Helpers ---- */
+  const $ = (s) => document.querySelector(s);
+  const $$ = (s) => document.querySelectorAll(s);
+  const parseAmount = (s) => Number(String(s).replace(/[^\d]/g, '')) || 0;
 
-  function getSavedCode() {
-    return localStorage.getItem(CODE_KEY);
+  function escapeHTML(str) {
+    const d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
   }
 
-  function setSavedCode(code) {
-    localStorage.setItem(CODE_KEY, code);
+  function todayStr() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }
 
-  // ---- Generate random code ----
+  function getRecordsArray() {
+    return Array.from(state.records.values());
+  }
+
+  /* ---- LocalStorage (user code only) ---- */
+  const CODE_KEY = 'zakkuri_v2_code';
+  const getSavedCode = () => localStorage.getItem(CODE_KEY);
+  const setSavedCode = (c) => localStorage.setItem(CODE_KEY, c);
+
+  /* ---- Code Generation ---- */
   function generateCode() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     let code = '';
-    for (let i = 0; i < 6; i++) {
-      code += chars[Math.floor(Math.random() * chars.length)];
-    }
+    for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
     return code;
   }
 
-  // ---- Firestore read/write ----
-  function getUserDocRef() {
-    return db.collection('users').doc(state.userCode);
+  /* ---- Firestore Refs ---- */
+  function getHouseholdRef() {
+    return db.collection('households').doc(state.userCode);
   }
 
-  function saveToFirestore() {
+  function getRecordsRef() {
+    return getHouseholdRef().collection('records');
+  }
+
+  /* ---- Sync Indicator ---- */
+  function setSyncStatus(status) {
+    const el = $('#sync-indicator');
+    if (!el) return;
+    el.className = 'sync-indicator ' + status;
+    el.title = status === 'synced' ? '同期済み'
+             : status === 'syncing' ? '同期中...'
+             : '接続エラー';
+  }
+
+  /* ---- Firestore: Meta (budget) ---- */
+  async function saveBudget(val) {
     if (!state.userCode) return;
-    clearTimeout(saveTimeout);
-    saveTimeout = setTimeout(() => {
-      getUserDocRef().set({
-        records: state.records,
-        budget: state.budget,
+    setSyncStatus('syncing');
+    try {
+      await getHouseholdRef().set({
+        budget: val,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-      }).catch(e => console.error('Save error:', e));
-    }, 500);
+      }, { merge: true });
+      setSyncStatus('synced');
+    } catch (e) {
+      console.error('Budget save error:', e);
+      setSyncStatus('error');
+    }
   }
 
-  function startFirestoreListener() {
-    if (unsubscribeFirestore) unsubscribeFirestore();
-
-    unsubscribeFirestore = getUserDocRef().onSnapshot((doc) => {
+  function startMetaListener() {
+    if (unsubMeta) unsubMeta();
+    unsubMeta = getHouseholdRef().onSnapshot((doc) => {
       if (doc.exists) {
         const data = doc.data();
-        if (data.records) state.records = data.records;
-        if (data.budget !== undefined) state.budget = data.budget;
-        updateAll();
+        if (data.budget !== undefined) {
+          state.budget = data.budget;
+          updateBudgetBar();
+        }
       }
+      setSyncStatus('synced');
     }, (err) => {
-      console.error('Firestore listener error:', err);
+      console.error('Meta listener error:', err);
+      setSyncStatus('error');
     });
   }
 
-  // ---- DOM Refs ----
-  const $ = (sel) => document.querySelector(sel);
-  const $$ = (sel) => document.querySelectorAll(sel);
+  /* ---- Firestore: Records (subcollection) ---- */
+  async function addRecordToFirestore(record) {
+    setSyncStatus('syncing');
+    try {
+      await getRecordsRef().doc(record.id).set(record);
+      setSyncStatus('synced');
+    } catch (e) {
+      console.error('Record add error:', e);
+      setSyncStatus('error');
+    }
+  }
 
-  // ---- Init ----
+  async function deleteRecordFromFirestore(id) {
+    setSyncStatus('syncing');
+    try {
+      await getRecordsRef().doc(id).delete();
+      setSyncStatus('synced');
+    } catch (e) {
+      console.error('Record delete error:', e);
+      setSyncStatus('error');
+    }
+  }
+
+  function startRecordsListener() {
+    if (unsubRecords) unsubRecords();
+
+    unsubRecords = getRecordsRef().onSnapshot((snapshot) => {
+      // Process only the changes (added / modified / removed)
+      snapshot.docChanges().forEach((change) => {
+        const data = { id: change.doc.id, ...change.doc.data() };
+        if (change.type === 'added' || change.type === 'modified') {
+          state.records.set(change.doc.id, data);
+        } else if (change.type === 'removed') {
+          state.records.delete(change.doc.id);
+        }
+      });
+      updateAll();
+      setSyncStatus('synced');
+    }, (err) => {
+      console.error('Records listener error:', err);
+      setSyncStatus('error');
+    });
+  }
+
+  /* ---- Init ---- */
   function init() {
-    const savedCode = getSavedCode();
-    if (savedCode) {
-      state.userCode = savedCode;
+    const saved = getSavedCode();
+    if (saved) {
+      state.userCode = saved;
       startApp();
     } else {
       showSetupModal();
@@ -125,10 +208,12 @@
   }
 
   function startApp() {
+    $('#date-input').value = todayStr();
     renderCategories();
     bindEvents();
     switchTab('input');
-    startFirestoreListener();
+    startMetaListener();
+    startRecordsListener();
     updateBudgetBar();
     renderRecentItems();
     if ($('#user-code-text')) {
@@ -136,7 +221,7 @@
     }
   }
 
-  // ---- Setup Modal ----
+  /* ---- Setup Modal ---- */
   function showSetupModal() {
     $('#setup-modal').classList.add('show');
 
@@ -144,10 +229,9 @@
       const code = generateCode();
       state.userCode = code;
       setSavedCode(code);
-      // Create empty document in Firestore
-      await getUserDocRef().set({
-        records: [],
+      await getHouseholdRef().set({
         budget: 0,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
       });
       $('#setup-modal').classList.remove('show');
@@ -161,9 +245,8 @@
         showToast('⚠️ 6桁のコードを入力してください');
         return;
       }
-      // Check if document exists
-      const docRef = db.collection('users').doc(code);
-      const snap = await docRef.get();
+      const ref = db.collection('households').doc(code);
+      const snap = await ref.get();
       if (!snap.exists) {
         showToast('⚠️ このコードのデータが見つかりません');
         return;
@@ -175,13 +258,12 @@
       showToast('✅ データを引き継ぎました！');
     });
 
-    // Allow Enter key
     $('#setup-code-input').addEventListener('keydown', (e) => {
       if (e.key === 'Enter') $('#setup-join-btn').click();
     });
   }
 
-  // ---- Category Rendering ----
+  /* ---- Categories ---- */
   function getCategories() {
     return state.entryType === 'expense' ? EXPENSE_CATEGORIES : INCOME_CATEGORIES;
   }
@@ -208,33 +290,28 @@
     validateForm();
   }
 
-  // ---- Event Bindings ----
+  /* ---- Events ---- */
   function bindEvents() {
-    // Tab Navigation
-    $$('.tab-btn').forEach(btn => {
-      btn.addEventListener('click', () => switchTab(btn.dataset.tab));
-    });
+    // Tabs
+    $$('.tab-btn').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
 
-    // Type Toggle
-    $$('.type-btn').forEach(btn => {
-      btn.addEventListener('click', () => switchType(btn.dataset.type));
-    });
+    // Type toggle
+    $$('.type-btn').forEach(b => b.addEventListener('click', () => switchType(b.dataset.type)));
 
-    // Amount Input
+    // Amount
     const amountInput = $('#amount-input');
     amountInput.addEventListener('input', () => {
-      let val = amountInput.value.replace(/[^\d]/g, '');
-      if (val.length > 10) val = val.slice(0, 10);
-      amountInput.value = val ? Number(val).toLocaleString() : '';
+      let v = amountInput.value.replace(/[^\d]/g, '');
+      if (v.length > 10) v = v.slice(0, 10);
+      amountInput.value = v ? Number(v).toLocaleString() : '';
       validateForm();
     });
 
-    // Quick Amount Buttons
-    $$('.quick-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const current = parseAmount(amountInput.value) || 0;
-        const add = Number(btn.dataset.amount);
-        amountInput.value = (current + add).toLocaleString();
+    // Quick amounts
+    $$('.quick-btn').forEach(b => {
+      b.addEventListener('click', () => {
+        const cur = parseAmount(amountInput.value) || 0;
+        amountInput.value = (cur + Number(b.dataset.amount)).toLocaleString();
         validateForm();
       });
     });
@@ -248,16 +325,15 @@
     $('#save-settings').addEventListener('click', saveSettings);
 
     // Budget presets
-    $$('.preset-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
+    $$('.preset-btn').forEach(b => {
+      b.addEventListener('click', () => {
         const input = $('#budget-input');
-        input.value = '';
-        input.value = Number(btn.dataset.budget).toLocaleString();
+        input.value = Number(b.dataset.budget).toLocaleString();
         input.focus();
       });
     });
 
-    // Inline budget editing
+    // Inline budget edit
     $('#budget-total-display').addEventListener('click', startInlineBudgetEdit);
     const inlineInput = $('#budget-inline-input');
     inlineInput.addEventListener('keydown', (e) => {
@@ -266,9 +342,9 @@
     });
     inlineInput.addEventListener('blur', finishInlineBudgetEdit);
     inlineInput.addEventListener('input', () => {
-      let val = inlineInput.value.replace(/[^\d]/g, '');
-      if (val.length > 10) val = val.slice(0, 10);
-      inlineInput.value = val ? Number(val).toLocaleString() : '';
+      let v = inlineInput.value.replace(/[^\d]/g, '');
+      if (v.length > 10) v = v.slice(0, 10);
+      inlineInput.value = v ? Number(v).toLocaleString() : '';
     });
 
     // Copy code
@@ -283,10 +359,15 @@
     // Export & Reset
     $('#export-btn').addEventListener('click', exportData);
     $('#reset-btn').addEventListener('click', () => {
-      showConfirm('本当に全てのデータを削除しますか？\nこの操作は元に戻せません。', () => {
-        state.records = [];
+      showConfirm('本当に全てのデータを削除しますか？\nこの操作は元に戻せません。', async () => {
+        // Delete all records from Firestore
+        const records = getRecordsArray();
+        const batch = db.batch();
+        records.forEach(r => batch.delete(getRecordsRef().doc(r.id)));
+        await batch.commit();
         state.budget = 0;
-        saveToFirestore();
+        await saveBudget(0);
+        state.records.clear();
         updateAll();
         closeSettings();
         showToast('🗑️ データをリセットしました');
@@ -301,21 +382,20 @@
     $('#hist-prev-month').addEventListener('click', () => navigateHistoryMonth(-1));
     $('#hist-next-month').addEventListener('click', () => navigateHistoryMonth(1));
 
-    // Confirm dialog
+    // Confirm
     $('#confirm-cancel').addEventListener('click', closeConfirm);
   }
 
-  // ---- Tab Switching ----
+  /* ---- Tab ---- */
   function switchTab(tab) {
     $$('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
     $$('.tab-content').forEach(c => c.classList.remove('active'));
     $(`#tab-${tab}`).classList.add('active');
-
     if (tab === 'dashboard') updateDashboard();
     if (tab === 'history') updateHistory();
   }
 
-  // ---- Type Toggle ----
+  /* ---- Type ---- */
   function switchType(type) {
     state.entryType = type;
     state.selectedCategory = null;
@@ -324,24 +404,23 @@
     validateForm();
   }
 
-  // ---- Form Validation ----
+  /* ---- Form ---- */
   function validateForm() {
     const amount = parseAmount($('#amount-input').value);
-    const valid = state.selectedCategory && amount > 0;
-    $('#save-btn').disabled = !valid;
+    $('#save-btn').disabled = !(state.selectedCategory && amount > 0);
   }
 
-  function parseAmount(str) {
-    return Number(String(str).replace(/[^\d]/g, '')) || 0;
-  }
-
-  // ---- Save Record ----
+  /* ---- Save Record ---- */
   function saveRecord() {
     const amount = parseAmount($('#amount-input').value);
     if (!amount || !state.selectedCategory) return;
 
     const cats = getCategories();
     const cat = cats.find(c => c.id === state.selectedCategory);
+
+    // Use selected date or today
+    const dateVal = $('#date-input').value || todayStr();
+    const dateObj = new Date(dateVal + 'T12:00:00');
 
     const record = {
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
@@ -352,15 +431,21 @@
       color: cat.color,
       amount: amount,
       memo: $('#memo-input').value.trim(),
-      date: new Date().toISOString(),
+      date: dateObj.toISOString(),
+      createdAt: new Date().toISOString(),
     };
 
-    state.records.unshift(record);
-    saveToFirestore();
+    // Optimistic update: add to local state immediately
+    state.records.set(record.id, record);
+    updateAll();
+
+    // Save to Firestore
+    addRecordToFirestore(record);
 
     // Reset form
     $('#amount-input').value = '';
     $('#memo-input').value = '';
+    $('#date-input').value = todayStr();
     state.selectedCategory = null;
     renderCategories();
     validateForm();
@@ -368,18 +453,18 @@
     const emoji = state.entryType === 'expense' ? '💸' : '💰';
     showToast(`${emoji} ¥${amount.toLocaleString()} を記録しました`);
 
-    updateBudgetBar();
-    renderRecentItems();
-
+    // Button feedback
     const btn = $('#save-btn');
     btn.style.transform = 'scale(0.95)';
     setTimeout(() => { btn.style.transform = ''; }, 150);
   }
 
-  // ---- Recent Items ----
+  /* ---- Recent Items ---- */
   function renderRecentItems() {
     const list = $('#recent-list');
-    const recent = state.records.slice(0, 5);
+    const recent = getRecordsArray()
+      .sort((a, b) => new Date(b.createdAt || b.date) - new Date(a.createdAt || a.date))
+      .slice(0, 5);
 
     if (recent.length === 0) {
       list.innerHTML = '<div class="empty-state"><span class="empty-icon">📝</span><p>最初の記録をつけてみよう</p></div>';
@@ -404,96 +489,87 @@
     }).join('');
   }
 
-  // ---- Budget Bar ----
+  /* ---- Budget Bar ---- */
   function updateBudgetBar() {
     const now = new Date();
-    const monthRecords = getMonthRecords(now.getFullYear(), now.getMonth());
-    const spent = monthRecords
-      .filter(r => r.type === 'expense')
-      .reduce((s, r) => s + r.amount, 0);
+    const monthRecs = getMonthRecords(now.getFullYear(), now.getMonth());
+    const spent = monthRecs.filter(r => r.type === 'expense').reduce((s, r) => s + r.amount, 0);
 
     const remaining = state.budget > 0 ? state.budget - spent : 0;
     const pct = state.budget > 0 ? Math.min((spent / state.budget) * 100, 100) : 0;
 
-    const numeratorEl = $('#budget-spent-amount');
-    const denominatorEl = $('#budget-total-display');
+    const spentEl = $('#budget-spent');
+    const totalEl = $('#budget-total-display');
     const progressEl = $('#budget-progress');
-    const remainLabel = $('#budget-remaining-label');
-    const pctLabel = $('#budget-pct-label');
+    const remainEl = $('#budget-remaining');
+    const pctEl = $('#budget-pct');
 
-    numeratorEl.textContent = `¥${spent.toLocaleString()}`;
+    spentEl.textContent = `¥${spent.toLocaleString()}`;
 
     if (state.budget <= 0) {
-      denominatorEl.textContent = '未設定 ✎';
+      totalEl.textContent = '未設定 ✎';
       progressEl.style.width = '0%';
       progressEl.className = 'progress-fill';
-      numeratorEl.className = 'budget-numerator';
-      remainLabel.textContent = '';
-      pctLabel.textContent = 'タップして予算を設定';
+      spentEl.className = 'budget-spent';
+      remainEl.textContent = '';
+      pctEl.textContent = 'タップして予算を設定';
     } else {
-      denominatorEl.textContent = `¥${state.budget.toLocaleString()}`;
-
+      totalEl.textContent = `¥${state.budget.toLocaleString()}`;
       if (pct >= 90) {
-        numeratorEl.className = 'budget-numerator danger';
+        spentEl.className = 'budget-spent danger';
         progressEl.className = 'progress-fill danger';
       } else if (pct >= 70) {
-        numeratorEl.className = 'budget-numerator warning';
+        spentEl.className = 'budget-spent warning';
         progressEl.className = 'progress-fill warning';
       } else {
-        numeratorEl.className = 'budget-numerator';
+        spentEl.className = 'budget-spent';
         progressEl.className = 'progress-fill';
       }
-
       progressEl.style.width = pct + '%';
-      remainLabel.textContent = `残り ¥${Math.max(remaining, 0).toLocaleString()}`;
-      pctLabel.textContent = `${pct.toFixed(0)}% 消化`;
+      remainEl.textContent = `残り ¥${Math.max(remaining, 0).toLocaleString()}`;
+      pctEl.textContent = `${pct.toFixed(0)}% 消化`;
     }
   }
 
-  // ---- Inline Budget Edit ----
+  /* ---- Inline Budget Edit ---- */
   function startInlineBudgetEdit() {
-    const displayEl = $('#budget-total-display');
-    const editEl = $('#budget-total-edit');
+    $('#budget-total-display').style.display = 'none';
+    $('#budget-total-edit').style.display = 'flex';
     const input = $('#budget-inline-input');
-
-    displayEl.style.display = 'none';
-    editEl.style.display = 'flex';
     input.value = state.budget > 0 ? state.budget.toLocaleString() : '';
     input.focus();
     input.select();
   }
 
   function finishInlineBudgetEdit() {
-    const displayEl = $('#budget-total-display');
     const editEl = $('#budget-total-edit');
-    const input = $('#budget-inline-input');
-
     if (editEl.style.display === 'none') return;
-
-    const val = parseAmount(input.value);
+    const val = parseAmount($('#budget-inline-input').value);
     state.budget = val;
-    saveToFirestore();
-
-    displayEl.style.display = '';
+    saveBudget(val);
+    $('#budget-total-display').style.display = '';
     editEl.style.display = 'none';
-
     updateBudgetBar();
     if (val > 0) showToast(`✅ 予算を ¥${val.toLocaleString()} に設定しました`);
   }
 
   function cancelInlineBudgetEdit() {
-    const displayEl = $('#budget-total-display');
-    const editEl = $('#budget-total-edit');
-    displayEl.style.display = '';
-    editEl.style.display = 'none';
+    $('#budget-total-display').style.display = '';
+    $('#budget-total-edit').style.display = 'none';
   }
 
-  // ---- Dashboard ----
+  /* ---- Get month records ---- */
+  function getMonthRecords(year, month) {
+    return getRecordsArray().filter(r => {
+      const d = new Date(r.date);
+      return d.getFullYear() === year && d.getMonth() === month;
+    }).sort((a, b) => new Date(b.date) - new Date(a.date));
+  }
+
+  /* ---- Dashboard ---- */
   function updateDashboard() {
     const d = state.dashboardMonth;
-    const y = d.getFullYear();
-    const m = d.getMonth();
-
+    const y = d.getFullYear(), m = d.getMonth();
     $('#dashboard-month').textContent = `${y}年${m + 1}月`;
 
     const records = getMonthRecords(y, m);
@@ -516,7 +592,7 @@
     updateDashboard();
   }
 
-  // ---- Pie Chart ----
+  /* ---- Pie Chart (dark theme) ---- */
   function drawPieChart(expenses) {
     const canvas = $('#pie-chart');
     const ctx = canvas.getContext('2d');
@@ -530,12 +606,9 @@
     ctx.clearRect(0, 0, w, h);
 
     const legendEl = $('#pie-legend');
-
     const groups = {};
     expenses.forEach(r => {
-      if (!groups[r.categoryId]) {
-        groups[r.categoryId] = { amount: 0, emoji: r.emoji, label: r.label, color: r.color };
-      }
+      if (!groups[r.categoryId]) groups[r.categoryId] = { amount: 0, emoji: r.emoji, label: r.label, color: r.color };
       groups[r.categoryId].amount += r.amount;
     });
 
@@ -543,11 +616,11 @@
     const total = sorted.reduce((s, g) => s + g.amount, 0);
 
     if (total === 0) {
-      ctx.fillStyle = '#e5e7eb';
+      ctx.fillStyle = 'rgba(255,255,255,0.06)';
       ctx.beginPath();
       ctx.arc(140, 140, 100, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = '#9ca3af';
+      ctx.fillStyle = '#475569';
       ctx.font = '500 14px Inter, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -567,15 +640,23 @@
       ctx.closePath();
       ctx.fillStyle = g.color;
       ctx.fill();
+
+      // Subtle glow
+      ctx.shadowColor = g.color;
+      ctx.shadowBlur = 6;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
       startAngle += sliceAngle;
     });
 
-    ctx.fillStyle = '#1a1d23';
+    // Center text
+    ctx.fillStyle = '#f1f5f9';
     ctx.font = '800 20px Inter, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(`¥${total.toLocaleString()}`, cx, cy - 6);
-    ctx.fillStyle = '#6b7280';
+    ctx.fillStyle = '#64748b';
     ctx.font = '500 11px Inter, sans-serif';
     ctx.fillText('合計', cx, cy + 14);
 
@@ -583,7 +664,7 @@
       const pct = ((g.amount / total) * 100).toFixed(1);
       return `
         <div class="legend-item">
-          <span class="legend-dot" style="background:${g.color}"></span>
+          <span class="legend-dot" style="background:${g.color};box-shadow:0 0 6px ${g.color}40"></span>
           <span class="legend-label">${g.emoji} ${g.label}</span>
           <span class="legend-value">¥${g.amount.toLocaleString()} (${pct}%)</span>
         </div>
@@ -591,7 +672,7 @@
     }).join('');
   }
 
-  // ---- Bar Chart ----
+  /* ---- Bar Chart (dark theme) ---- */
   function drawBarChart(expenses, year, month) {
     const canvas = $('#bar-chart');
     const ctx = canvas.getContext('2d');
@@ -621,7 +702,8 @@
     const topPad = 16;
     const barArea = bottom - topPad;
 
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.06)';
+    // Gridlines
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
     ctx.lineWidth = 1;
     for (let i = 0; i < 4; i++) {
       const y = topPad + (barArea / 3) * i;
@@ -638,25 +720,31 @@
       const x = 24 + i * gap;
       const h = val > 0 ? Math.max((val / maxVal) * barArea, 3) : 0;
       const y = bottom - h;
-
       const isToday = isCurrentMonth && (i + 1) === today.getDate();
+
       if (h > 0) {
         const grad = ctx.createLinearGradient(x, y, x, bottom);
         if (isToday) {
-          grad.addColorStop(0, '#10b981');
-          grad.addColorStop(1, 'rgba(16, 185, 129, 0.2)');
+          grad.addColorStop(0, '#34d399');
+          grad.addColorStop(1, 'rgba(52, 211, 153, 0.15)');
         } else {
-          grad.addColorStop(0, '#0891b2');
-          grad.addColorStop(1, 'rgba(8, 145, 178, 0.15)');
+          grad.addColorStop(0, '#22d3ee');
+          grad.addColorStop(1, 'rgba(34, 211, 238, 0.1)');
         }
         ctx.fillStyle = grad;
         ctx.beginPath();
         ctx.roundRect(x - barW / 2, y, barW, h, [3, 3, 0, 0]);
         ctx.fill();
+
+        // Glow
+        ctx.shadowColor = isToday ? '#34d399' : '#22d3ee';
+        ctx.shadowBlur = 4;
+        ctx.fill();
+        ctx.shadowBlur = 0;
       }
 
       if (daysInMonth <= 15 || (i + 1) % 2 === 1 || (i + 1) === daysInMonth) {
-        ctx.fillStyle = isToday ? '#10b981' : '#9ca3af';
+        ctx.fillStyle = isToday ? '#34d399' : '#64748b';
         ctx.font = `${isToday ? '600' : '400'} 9px Inter, sans-serif`;
         ctx.textAlign = 'center';
         ctx.fillText(i + 1, x, chartH - 6);
@@ -664,7 +752,7 @@
     });
   }
 
-  // ---- Score ----
+  /* ---- Score ---- */
   function drawScore(totalExpense) {
     const canvas = $('#score-canvas');
     const ctx = canvas.getContext('2d');
@@ -684,11 +772,11 @@
     if (state.budget <= 0) {
       ctx.beginPath();
       ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-      ctx.strokeStyle = '#e5e7eb';
+      ctx.strokeStyle = 'rgba(255,255,255,0.06)';
       ctx.lineWidth = lineW;
       ctx.stroke();
       scoreEl.textContent = '--';
-      scoreEl.style.color = '#9ca3af';
+      scoreEl.style.color = '#64748b';
       msgEl.textContent = '予算を設定すると表示されます';
       msgEl.className = 'score-message';
       return;
@@ -703,17 +791,19 @@
     score = Math.round(score);
 
     let color, msgClass, msg;
-    if (score >= 80) { color = '#10b981'; msgClass = 'great'; msg = '🎉 素晴らしい節約っぷり！'; }
-    else if (score >= 60) { color = '#0891b2'; msgClass = 'good'; msg = '👍 いい感じ、この調子！'; }
-    else if (score >= 40) { color = '#f97316'; msgClass = 'warning'; msg = '⚠️ ちょっと使いすぎかも…'; }
-    else { color = '#ef4444'; msgClass = 'danger'; msg = '🔥 財布がピンチ！'; }
+    if (score >= 80) { color = '#34d399'; msgClass = 'great'; msg = '🎉 素晴らしい節約っぷり！'; }
+    else if (score >= 60) { color = '#22d3ee'; msgClass = 'good'; msg = '👍 いい感じ、この調子！'; }
+    else if (score >= 40) { color = '#fb923c'; msgClass = 'warning'; msg = '⚠️ ちょっと使いすぎかも…'; }
+    else { color = '#f87171'; msgClass = 'danger'; msg = '🔥 財布がピンチ！'; }
 
+    // BG ring
     ctx.beginPath();
     ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-    ctx.strokeStyle = '#e5e7eb';
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
     ctx.lineWidth = lineW;
     ctx.stroke();
 
+    // Score ring
     const startA = -Math.PI / 2;
     const endA = startA + (score / 100) * Math.PI * 2;
     ctx.beginPath();
@@ -721,7 +811,10 @@
     ctx.strokeStyle = color;
     ctx.lineWidth = lineW;
     ctx.lineCap = 'round';
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 10;
     ctx.stroke();
+    ctx.shadowBlur = 0;
 
     scoreEl.textContent = score;
     scoreEl.style.color = color;
@@ -729,12 +822,10 @@
     msgEl.className = 'score-message ' + msgClass;
   }
 
-  // ---- History ----
+  /* ---- History ---- */
   function updateHistory() {
     const d = state.historyMonth;
-    const y = d.getFullYear();
-    const m = d.getMonth();
-
+    const y = d.getFullYear(), m = d.getMonth();
     $('#history-month').textContent = `${y}年${m + 1}月`;
 
     const records = getMonthRecords(y, m);
@@ -783,8 +874,8 @@
         e.stopPropagation();
         const id = btn.dataset.id;
         showConfirm('この記録を削除しますか？', () => {
-          state.records = state.records.filter(r => r.id !== id);
-          saveToFirestore();
+          state.records.delete(id);
+          deleteRecordFromFirestore(id);
           updateAll();
           showToast('🗑️ 記録を削除しました');
         });
@@ -798,31 +889,27 @@
     updateHistory();
   }
 
-  // ---- Settings ----
+  /* ---- Settings ---- */
   function openSettings() {
     $('#budget-input').value = state.budget > 0 ? state.budget.toLocaleString() : '';
-    if ($('#user-code-text')) {
-      $('#user-code-text').textContent = state.userCode || '------';
-    }
+    if ($('#user-code-text')) $('#user-code-text').textContent = state.userCode || '------';
     $('#settings-modal').classList.add('show');
   }
 
-  function closeSettings() {
-    $('#settings-modal').classList.remove('show');
-  }
+  function closeSettings() { $('#settings-modal').classList.remove('show'); }
 
   function saveSettings() {
     const val = parseAmount($('#budget-input').value);
     state.budget = val;
-    saveToFirestore();
+    saveBudget(val);
     updateBudgetBar();
     closeSettings();
     showToast('✅ 設定を保存しました');
   }
 
-  // ---- Export ----
+  /* ---- Export ---- */
   function exportData() {
-    const data = JSON.stringify({ records: state.records, budget: state.budget }, null, 2);
+    const data = JSON.stringify({ records: getRecordsArray(), budget: state.budget }, null, 2);
     const blob = new Blob([data], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -833,31 +920,18 @@
     showToast('📥 データをエクスポートしました');
   }
 
-  // ---- Utilities ----
-  function getMonthRecords(year, month) {
-    return state.records.filter(r => {
-      const d = new Date(r.date);
-      return d.getFullYear() === year && d.getMonth() === month;
-    }).sort((a, b) => new Date(b.date) - new Date(a.date));
-  }
-
+  /* ---- Update All ---- */
   function updateAll() {
     updateBudgetBar();
     renderRecentItems();
-    const activeTab = document.querySelector('.tab-btn.active');
-    if (activeTab) {
-      if (activeTab.dataset.tab === 'dashboard') updateDashboard();
-      if (activeTab.dataset.tab === 'history') updateHistory();
+    const active = document.querySelector('.tab-btn.active');
+    if (active) {
+      if (active.dataset.tab === 'dashboard') updateDashboard();
+      if (active.dataset.tab === 'history') updateHistory();
     }
   }
 
-  function escapeHTML(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-  }
-
-  // ---- Toast ----
+  /* ---- Toast ---- */
   function showToast(message) {
     const toast = $('#toast');
     toast.textContent = message;
@@ -865,14 +939,13 @@
     setTimeout(() => toast.classList.remove('show'), 2200);
   }
 
-  // ---- Confirm Dialog ----
+  /* ---- Confirm ---- */
   let confirmCallback = null;
 
   function showConfirm(msg, onConfirm) {
     $('#confirm-message').textContent = msg;
     $('#confirm-dialog').classList.add('show');
     confirmCallback = onConfirm;
-
     const okBtn = $('#confirm-ok');
     const newOk = okBtn.cloneNode(true);
     okBtn.parentNode.replaceChild(newOk, okBtn);
@@ -887,6 +960,6 @@
     confirmCallback = null;
   }
 
-  // ---- Start ----
+  /* ---- Start ---- */
   document.addEventListener('DOMContentLoaded', init);
 })();

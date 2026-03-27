@@ -1,11 +1,11 @@
 {
   "name": "ザックリ家計簿",
   "short_name": "ザックリ",
-  "description": "ズボラでも続く、シンプル家計簿アプリ",
+  "description": "シンプル＆クラウド同期の家計簿アプリ",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#f5f7fa",
-  "theme_color": "#10b981",
+  "background_color": "#0b0f19",
+  "theme_color": "#0b0f19",
   "orientation": "portrait",
   "icons": [
     {
