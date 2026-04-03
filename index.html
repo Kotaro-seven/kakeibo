@@ -156,10 +156,23 @@
       <h2 id="history-month" class="dashboard-month"></h2>
       <button id="hist-next-month" class="month-nav-btn">▶</button>
     </div>
+
+    <div class="history-actions" style="display: flex; justify-content: flex-end; padding: 0 16px 12px;">
+      <button id="toggle-select-mode-btn" class="action-btn" style="font-size: 0.8rem; padding: 6px 12px;">✅ 選択モードを開始</button>
+    </div>
+
     <div id="history-list" class="history-list"></div>
     <div id="history-empty" class="empty-state">
       <span class="empty-icon">📭</span>
       <p>まだ記録がありません</p>
+    </div>
+
+    <div id="selection-float-bar" class="selection-float-bar hidden">
+      <div class="selection-info">
+        <span id="selection-count">0件選択中</span>
+        <span id="selection-total">合計 ¥0</span>
+      </div>
+      <button id="selection-clear-btn" class="icon-btn">✕</button>
     </div>
   </main>
 

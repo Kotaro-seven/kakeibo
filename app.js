@@ -83,6 +83,8 @@
     historyMonth: new Date(),
     userCode: null,
     currentUser: null,           // Firebase Auth user
+    isSelectMode: false,
+    selectedHistoryItems: new Set(),
   };
 
   let unsubMeta = null;
@@ -454,6 +456,10 @@
     // History month nav
     $('#hist-prev-month').addEventListener('click', () => navigateHistoryMonth(-1));
     $('#hist-next-month').addEventListener('click', () => navigateHistoryMonth(1));
+
+    // History selection mode bindings
+    $('#toggle-select-mode-btn').addEventListener('click', toggleHistorySelectMode);
+    $('#selection-clear-btn').addEventListener('click', clearHistorySelection);
 
     // Confirm
     $('#confirm-cancel').addEventListener('click', closeConfirm);
@@ -918,6 +924,65 @@
     msgEl.className = 'score-message ' + msgClass;
   }
 
+  /* ---- History Selection Mode ---- */
+  function toggleHistorySelectMode() {
+    state.isSelectMode = !state.isSelectMode;
+    const btn = $('#toggle-select-mode-btn');
+    if (state.isSelectMode) {
+      btn.textContent = '❌ 選択モードを終了';
+      btn.classList.add('danger-btn');
+    } else {
+      btn.textContent = '✅ 選択モードを開始';
+      btn.classList.remove('danger-btn');
+      state.selectedHistoryItems.clear(); // Clear selections on exit
+    }
+    updateHistory(); // re-render to toggle checkboxes
+    updateSelectionUI();
+  }
+
+  function toggleItemSelection(id) {
+    if (state.selectedHistoryItems.has(id)) {
+      state.selectedHistoryItems.delete(id);
+    } else {
+      state.selectedHistoryItems.add(id);
+    }
+    // Update visuals immediately without re-rendering everything
+    const itemEl = document.querySelector(`.history-item[data-id="${id}"]`);
+    if (itemEl) {
+      itemEl.classList.toggle('selected', state.selectedHistoryItems.has(id));
+    }
+    updateSelectionUI();
+  }
+
+  function clearHistorySelection() {
+    state.selectedHistoryItems.clear();
+    document.querySelectorAll('.history-item.selected').forEach(el => el.classList.remove('selected'));
+    updateSelectionUI();
+  }
+
+  function updateSelectionUI() {
+    const floatBar = $('#selection-float-bar');
+    if (!floatBar) return;
+    
+    if (!state.isSelectMode) {
+      floatBar.classList.add('hidden');
+      return;
+    }
+
+    if (state.selectedHistoryItems.size > 0) {
+      floatBar.classList.remove('hidden');
+      let total = 0;
+      state.selectedHistoryItems.forEach(id => {
+        const record = state.records.get(id);
+        if (record) total += record.amount;
+      });
+      $('#selection-count').textContent = `${state.selectedHistoryItems.size}件選択中`;
+      $('#selection-total').textContent = `合計 ¥${total.toLocaleString()}`;
+    } else {
+      floatBar.classList.add('hidden');
+    }
+  }
+
   /* ---- History ---- */
   function updateHistory() {
     const d = state.historyMonth;
@@ -948,8 +1013,12 @@
         <div class="history-date-label">${dateLabel}</div>
         ${items.map(r => {
           const sign = r.type === 'expense' ? '-' : '+';
+          const isSelectable = state.isSelectMode ? 'selectable' : '';
+          const isSelected = state.selectedHistoryItems.has(r.id) ? 'selected' : '';
+          const checkboxHtml = state.isSelectMode ? `<div class="history-checkbox"></div>` : '';
           return `
-            <div class="history-item" data-id="${r.id}">
+            <div class="history-item ${isSelectable} ${isSelected}" data-id="${r.id}">
+              ${checkboxHtml}
               <span class="history-emoji">${r.emoji}</span>
               <div class="history-info">
                 <div class="history-category">${r.label}${getPaymentBadge(r)}</div>
@@ -967,7 +1036,11 @@
 
     listEl.querySelectorAll('.history-item').forEach(item => {
       item.addEventListener('click', () => {
-        openEditModal(item.dataset.id);
+        if (state.isSelectMode) {
+          toggleItemSelection(item.dataset.id);
+        } else {
+          openEditModal(item.dataset.id);
+        }
       });
     });
   }

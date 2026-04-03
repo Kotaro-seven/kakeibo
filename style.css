@@ -1011,6 +1011,94 @@ body > * {
 
 .empty-state p { font-size: 0.9rem; }
 
+/* ---- Selection Mode ---- */
+.selection-float-bar {
+  position: fixed;
+  bottom: 80px; 
+  left: 50%;
+  transform: translateX(-50%);
+  width: 90%;
+  max-width: 400px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--accent-cyan);
+  color: var(--text-primary);
+  padding: 12px 16px;
+  border-radius: var(--radius-lg);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 4px 16px rgba(34, 211, 238, 0.2);
+  z-index: 100;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s;
+}
+
+.selection-float-bar.hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 20px);
+}
+
+.selection-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+#selection-count {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+#selection-total {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0.02em;
+}
+
+#selection-clear-btn {
+  color: var(--text-secondary);
+  background: var(--bg-card);
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+}
+
+.history-item.selectable {
+  cursor: pointer;
+  position: relative;
+  padding-left: 44px;
+}
+
+.history-checkbox {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--border-color);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition-short);
+  background: var(--bg-body);
+}
+
+.history-item.selected .history-checkbox {
+  background: var(--accent-cyan);
+  border-color: var(--accent-cyan);
+}
+
+.history-item.selected .history-checkbox::after {
+  content: "✓";
+  color: var(--bg-body);
+  font-size: 14px;
+  font-weight: 900;
+}
 /* ---- Edit Modal ---- */
 .edit-category-display {
   display: flex;
