@@ -1217,9 +1217,24 @@
         hideAuthError();
         setAuthLoading(true);
         try {
+          // Try popup first (works on desktop)
           await auth.signInWithPopup(googleProvider);
         } catch (err) {
-          if (err.code !== 'auth/popup-closed-by-user') {
+          if (err.code === 'auth/popup-blocked' ||
+              err.code === 'auth/operation-not-supported-in-this-environment' ||
+              err.code === 'auth/cancelled-popup-request') {
+            // Fallback to redirect (works on mobile & popup-blocked)
+            try {
+              await auth.signInWithRedirect(googleProvider);
+            } catch (redirectErr) {
+              showAuthError(getAuthError(redirectErr.code));
+              setAuthLoading(false);
+            }
+            return;
+          }
+          if (err.code === 'auth/unauthorized-domain') {
+            showAuthError('このドメインはFirebaseで許可されていません。Firebase Console → Authentication → Settings → 承認済みドメイン に「' + window.location.hostname + '」を追加してください。');
+          } else if (err.code !== 'auth/popup-closed-by-user') {
             showAuthError(getAuthError(err.code));
           }
         } finally {
@@ -1227,6 +1242,19 @@
         }
       });
     }
+
+    // Handle redirect result (for mobile Google login)
+    auth.getRedirectResult().then((result) => {
+      if (result && result.user) {
+        // Auth state listener will handle the rest
+      }
+    }).catch((err) => {
+      if (err.code === 'auth/unauthorized-domain') {
+        showAuthError('このドメインはFirebaseで許可されていません。Firebase Console → Authentication → Settings → 承認済みドメイン に「' + window.location.hostname + '」を追加してください。');
+      } else {
+        showAuthError(getAuthError(err.code));
+      }
+    });
   }
 
   /* ---- User Menu (Header) ---- */
