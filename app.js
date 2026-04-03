@@ -78,6 +78,7 @@
     budget: 0,
     selectedCategory: null,
     entryType: 'expense',
+    paymentMethod: 'cash',
     dashboardMonth: new Date(),
     historyMonth: new Date(),
     userCode: null,
@@ -96,6 +97,13 @@
     const d = document.createElement('div');
     d.textContent = str;
     return d.innerHTML;
+  }
+
+  function getPaymentBadge(r) {
+    if (r.type !== 'expense' || !r.paymentMethod) return '';
+    return r.paymentMethod === 'credit' ? 
+      '<span class="pm-badge" title="クレジットカード">💳</span>' : 
+      '<span class="pm-badge" title="現金">💴</span>';
   }
 
   function todayStr() {
@@ -345,6 +353,14 @@
     // Type toggle
     $$('.type-btn').forEach(b => b.addEventListener('click', () => switchType(b.dataset.type)));
 
+    // Payment method toggle
+    $$('.payment-btn').forEach(b => {
+      b.addEventListener('click', () => {
+        state.paymentMethod = b.dataset.method;
+        $$('.payment-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.method === state.paymentMethod));
+      });
+    });
+
     // Amount
     const amountInput = $('#amount-input');
     amountInput.addEventListener('input', () => {
@@ -472,6 +488,13 @@
     state.entryType = type;
     state.selectedCategory = null;
     $$('.type-btn').forEach(b => b.classList.toggle('active', b.dataset.type === type));
+    
+    const pmContainer = $('#payment-method-container');
+    if (pmContainer) {
+      if (type === 'expense') pmContainer.classList.remove('hidden');
+      else pmContainer.classList.add('hidden');
+    }
+    
     renderCategories();
     validateForm();
   }
@@ -503,6 +526,7 @@
       color: cat.color,
       amount: amount,
       memo: $('#memo-input').value.trim(),
+      paymentMethod: state.entryType === 'expense' ? state.paymentMethod : null,
       date: dateObj.toISOString(),
       createdAt: new Date().toISOString(),
     };
@@ -551,7 +575,7 @@
         <div class="recent-item">
           <span class="recent-emoji">${r.emoji}</span>
           <div class="recent-info">
-            <div class="recent-category">${r.label}</div>
+            <div class="recent-category">${r.label}${getPaymentBadge(r)}</div>
             ${r.memo ? `<div class="recent-memo">${escapeHTML(r.memo)}</div>` : ''}
           </div>
           <span class="recent-amount ${r.type}">${sign}¥${r.amount.toLocaleString()}</span>
@@ -928,7 +952,7 @@
             <div class="history-item" data-id="${r.id}">
               <span class="history-emoji">${r.emoji}</span>
               <div class="history-info">
-                <div class="history-category">${r.label}</div>
+                <div class="history-category">${r.label}${getPaymentBadge(r)}</div>
                 ${r.memo ? `<div class="history-memo-text">${escapeHTML(r.memo)}</div>` : ''}
               </div>
               <div class="history-right">
