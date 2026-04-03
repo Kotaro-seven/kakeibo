@@ -442,6 +442,20 @@
     // Confirm
     $('#confirm-cancel').addEventListener('click', closeConfirm);
     $('#confirm-ok').addEventListener('click', handleConfirmOk);
+
+    // Logout from settings
+    const logoutBtn = $('#logout-btn');
+    if (logoutBtn) {
+      logoutBtn.addEventListener('click', async () => {
+        closeSettings();
+        if (unsubMeta) { unsubMeta(); unsubMeta = null; }
+        if (unsubRecords) { unsubRecords(); unsubRecords = null; }
+        state.records.clear();
+        state.userCode = null;
+        state.currentUser = null;
+        await auth.signOut();
+      });
+    }
   }
 
   /* ---- Tab ---- */
@@ -1012,6 +1026,11 @@
   function openSettings() {
     $('#budget-input').value = state.budget > 0 ? state.budget.toLocaleString() : '';
     if ($('#user-code-text')) $('#user-code-text').textContent = state.userCode || '------';
+    // Show current user email
+    const emailEl = $('#settings-user-email');
+    if (emailEl && state.currentUser) {
+      emailEl.textContent = state.currentUser.email || '';
+    }
     $('#settings-modal').classList.add('show');
   }
 

@@ -1752,3 +1752,22 @@ body > * {
   inset: 0;
   z-index: 199;
 }
+
+/* ---- Settings Account Info ---- */
+.settings-user-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--bg-input);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-border);
+  margin-bottom: 10px;
+}
+
+.settings-user-email {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
