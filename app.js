@@ -24,9 +24,28 @@
 
   firebase.initializeApp(firebaseConfig);
   const db = firebase.firestore();
+  const auth = firebase.auth();
+  const googleProvider = new firebase.auth.GoogleAuthProvider();
 
   // Enable offline persistence (silent fail OK)
   db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
+
+  /* ---- Auth Error Mapping ---- */
+  const AUTH_ERRORS = {
+    'auth/email-already-in-use': 'このメールアドレスは既に登録されています',
+    'auth/invalid-email': 'メールアドレスの形式が正しくありません',
+    'auth/weak-password': 'パスワードは6文字以上にしてください',
+    'auth/user-not-found': 'メールアドレスが見つかりません',
+    'auth/wrong-password': 'パスワードが間違っています',
+    'auth/invalid-credential': 'メールアドレスまたはパスワードが間違っています',
+    'auth/too-many-requests': 'しばらく時間をおいてから再度お試しください',
+    'auth/popup-closed-by-user': 'ログインがキャンセルされました',
+    'auth/network-request-failed': 'ネットワークエラーです。接続を確認してください',
+  };
+
+  function getAuthError(code) {
+    return AUTH_ERRORS[code] || 'エラーが発生しました。もう一度お試しください';
+  }
 
   /* ---- Categories ---- */
   const EXPENSE_CATEGORIES = [
@@ -62,6 +81,7 @@
     dashboardMonth: new Date(),
     historyMonth: new Date(),
     userCode: null,
+    currentUser: null,           // Firebase Auth user
   };
 
   let unsubMeta = null;
@@ -209,6 +229,20 @@
 
   /* ---- Init ---- */
   function init() {
+    // Wait for Firebase Auth state
+    auth.onAuthStateChanged((user) => {
+      if (user) {
+        state.currentUser = user;
+        hideAuthScreen();
+        initAfterAuth();
+      } else {
+        state.currentUser = null;
+        showAuthScreen();
+      }
+    });
+  }
+
+  function initAfterAuth() {
     const saved = getSavedCode();
     if (saved) {
       state.userCode = saved;
@@ -222,6 +256,8 @@
     $('#date-input').value = todayStr();
     renderCategories();
     bindEvents();
+    bindAuthScreenEvents();
+    renderUserMenu();
     switchTab('input');
     startMetaListener();
     startRecordsListener();
@@ -1042,6 +1078,207 @@
     confirmCallback = null;
   }
 
+  /* ================================================
+     Auth Screen
+     ================================================ */
+  let authMode = 'login';
+  let authEventsbound = false;
+
+  function showAuthScreen() {
+    const el = $('#auth-screen');
+    if (el) el.classList.remove('hidden');
+  }
+
+  function hideAuthScreen() {
+    const el = $('#auth-screen');
+    if (el) el.classList.add('hidden');
+  }
+
+  function showAuthError(msg) {
+    const el = $('#auth-error');
+    const textEl = $('#auth-error-text');
+    if (el && textEl) {
+      textEl.textContent = msg;
+      el.style.display = 'flex';
+    }
+  }
+
+  function hideAuthError() {
+    const el = $('#auth-error');
+    if (el) el.style.display = 'none';
+  }
+
+  function setAuthLoading(loading) {
+    const btn = $('#auth-submit-btn');
+    const text = $('#auth-submit-text');
+    const arrow = btn ? btn.querySelector('.auth-submit-arrow') : null;
+    const spinner = $('#auth-spinner');
+    if (btn) btn.disabled = loading;
+    if (text) text.style.display = loading ? 'none' : '';
+    if (arrow) arrow.style.display = loading ? 'none' : '';
+    if (spinner) spinner.style.display = loading ? 'block' : 'none';
+  }
+
+  function switchAuthMode(mode) {
+    authMode = mode;
+    const nameGroup = $('#auth-name-group');
+    const submitText = $('#auth-submit-text');
+    const loginTab = $('#auth-tab-login');
+    const registerTab = $('#auth-tab-register');
+
+    if (mode === 'register') {
+      if (nameGroup) nameGroup.style.display = '';
+      if (submitText) submitText.textContent = 'アカウント作成';
+      if (loginTab) loginTab.classList.remove('active');
+      if (registerTab) registerTab.classList.add('active');
+    } else {
+      if (nameGroup) nameGroup.style.display = 'none';
+      if (submitText) submitText.textContent = 'ログイン';
+      if (loginTab) loginTab.classList.add('active');
+      if (registerTab) registerTab.classList.remove('active');
+    }
+    hideAuthError();
+  }
+
+  function bindAuthScreenEvents() {
+    if (authEventsbound) return;
+    authEventsbound = true;
+
+    // Tab switching
+    const loginTab = $('#auth-tab-login');
+    const registerTab = $('#auth-tab-register');
+    if (loginTab) loginTab.addEventListener('click', () => switchAuthMode('login'));
+    if (registerTab) registerTab.addEventListener('click', () => switchAuthMode('register'));
+
+    // Password toggle
+    const togglePw = $('#auth-toggle-pw');
+    const pwInput = $('#auth-password');
+    if (togglePw && pwInput) {
+      togglePw.addEventListener('click', () => {
+        const isPassword = pwInput.type === 'password';
+        pwInput.type = isPassword ? 'text' : 'password';
+        togglePw.textContent = isPassword ? '🙈' : '👁️';
+      });
+    }
+
+    // Form submit
+    const form = $('#auth-form');
+    if (form) {
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        hideAuthError();
+        setAuthLoading(true);
+
+        const email = $('#auth-email').value.trim();
+        const password = $('#auth-password').value;
+        const displayName = $('#auth-name') ? $('#auth-name').value.trim() : '';
+
+        try {
+          if (authMode === 'register') {
+            const cred = await auth.createUserWithEmailAndPassword(email, password);
+            if (displayName && cred.user) {
+              await cred.user.updateProfile({ displayName });
+            }
+          } else {
+            await auth.signInWithEmailAndPassword(email, password);
+          }
+          // Auth state listener will handle the rest
+        } catch (err) {
+          showAuthError(getAuthError(err.code));
+        } finally {
+          setAuthLoading(false);
+        }
+      });
+    }
+
+    // Google login
+    const googleBtn = $('#auth-google-btn');
+    if (googleBtn) {
+      googleBtn.addEventListener('click', async () => {
+        hideAuthError();
+        setAuthLoading(true);
+        try {
+          await auth.signInWithPopup(googleProvider);
+        } catch (err) {
+          if (err.code !== 'auth/popup-closed-by-user') {
+            showAuthError(getAuthError(err.code));
+          }
+        } finally {
+          setAuthLoading(false);
+        }
+      });
+    }
+  }
+
+  /* ---- User Menu (Header) ---- */
+  function renderUserMenu() {
+    const headerActions = $('.header-actions');
+    if (!headerActions || !state.currentUser) return;
+
+    // Remove existing user menu
+    const existing = headerActions.querySelector('.user-menu-wrapper');
+    if (existing) existing.remove();
+
+    const user = state.currentUser;
+    const displayName = user.displayName || user.email.split('@')[0];
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'user-menu-wrapper';
+
+    const avatarBtn = document.createElement('button');
+    avatarBtn.className = 'user-avatar-btn';
+    if (user.photoURL) {
+      avatarBtn.innerHTML = `<img src="${escapeHTML(user.photoURL)}" alt="">`;
+    } else {
+      avatarBtn.textContent = '👤';
+    }
+
+    const dropdown = document.createElement('div');
+    dropdown.className = 'user-dropdown hidden';
+    dropdown.innerHTML = `
+      <div class="user-dropdown-info">
+        <div class="user-dropdown-name">${escapeHTML(displayName)}</div>
+        <div class="user-dropdown-email">${escapeHTML(user.email || '')}</div>
+      </div>
+      <button class="user-dropdown-logout">🚪 ログアウト</button>
+    `;
+
+    wrapper.appendChild(avatarBtn);
+    wrapper.appendChild(dropdown);
+    headerActions.appendChild(wrapper);
+
+    // Toggle dropdown
+    avatarBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dropdown.classList.toggle('hidden');
+    });
+
+    // Close on click outside
+    document.addEventListener('click', () => {
+      dropdown.classList.add('hidden');
+    });
+
+    dropdown.addEventListener('click', (e) => {
+      e.stopPropagation();
+    });
+
+    // Logout
+    dropdown.querySelector('.user-dropdown-logout').addEventListener('click', async () => {
+      dropdown.classList.add('hidden');
+      // Cleanup listeners
+      if (unsubMeta) { unsubMeta(); unsubMeta = null; }
+      if (unsubRecords) { unsubRecords(); unsubRecords = null; }
+      state.records.clear();
+      state.userCode = null;
+      state.currentUser = null;
+      await auth.signOut();
+    });
+  }
+
   /* ---- Start ---- */
-  document.addEventListener('DOMContentLoaded', init);
+  // Bind auth events immediately (before login)
+  document.addEventListener('DOMContentLoaded', () => {
+    bindAuthScreenEvents();
+    init();
+  });
 })();

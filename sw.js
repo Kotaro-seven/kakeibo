@@ -1,7 +1,7 @@
 /* ================================================
    ザックリ家計簿 v2 - Service Worker
    ================================================ */
-const CACHE_NAME = 'zakkuri-v4';
+const CACHE_NAME = 'zakkuri-v5';
 const ASSETS = ['./', './index.html', './style.css', './app.js', './icon-512.png', './manifest.json'];
 
 self.addEventListener('install', (e) => {
