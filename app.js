@@ -460,6 +460,7 @@
     // History selection mode bindings
     $('#toggle-select-mode-btn').addEventListener('click', toggleHistorySelectMode);
     $('#selection-clear-btn').addEventListener('click', clearHistorySelection);
+    $('#bulk-select-btn').addEventListener('click', handleBulkSelect);
 
     // Confirm
     $('#confirm-cancel').addEventListener('click', closeConfirm);
@@ -928,15 +929,65 @@
   function toggleHistorySelectMode() {
     state.isSelectMode = !state.isSelectMode;
     const btn = $('#toggle-select-mode-btn');
+    const bulkContainer = $('#bulk-select-container');
+
     if (state.isSelectMode) {
       btn.textContent = '❌ 選択モードを終了';
       btn.classList.add('danger-btn');
+      if (bulkContainer) bulkContainer.classList.remove('hidden');
+      populateBulkCategories();
     } else {
       btn.textContent = '✅ 選択モードを開始';
       btn.classList.remove('danger-btn');
+      if (bulkContainer) bulkContainer.classList.add('hidden');
       state.selectedHistoryItems.clear(); // Clear selections on exit
     }
     updateHistory(); // re-render to toggle checkboxes
+    updateSelectionUI();
+  }
+
+  function populateBulkCategories() {
+    const bulkSelect = $('#bulk-category-select');
+    if (!bulkSelect) return;
+    
+    const catsMap = new Map();
+    [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES].forEach(c => catsMap.set(c.id, c.label));
+    
+    let html = '<option value="">全カテゴリ</option>';
+    catsMap.forEach((label, id) => {
+      html += `<option value="${id}">${label}</option>`;
+    });
+    bulkSelect.innerHTML = html;
+  }
+
+  function handleBulkSelect() {
+    const categoryId = $('#bulk-category-select').value;
+    const keyword = $('#bulk-keyword-input').value.trim().toLowerCase();
+    
+    const d = state.historyMonth;
+    const records = getMonthRecords(d.getFullYear(), d.getMonth());
+    
+    let matchedCount = 0;
+    records.forEach(r => {
+      let matchesCategory = categoryId === '' || r.categoryId === categoryId;
+      let matchesKeyword = keyword === '' || (r.memo && r.memo.toLowerCase().includes(keyword)) || r.label.toLowerCase().includes(keyword);
+      
+      if (matchesCategory && matchesKeyword) {
+        if (!state.selectedHistoryItems.has(r.id)) {
+          state.selectedHistoryItems.add(r.id);
+          matchedCount++;
+          const itemEl = document.querySelector(`.history-item[data-id="${r.id}"]`);
+          if (itemEl) itemEl.classList.add('selected');
+        }
+      }
+    });
+    
+    if (matchedCount > 0) {
+      showToast(`✅ ${matchedCount}件を追加選択しました`);
+    } else {
+      showToast('ℹ️ 条件に一致する新しい記録がありませんでした');
+    }
+    
     updateSelectionUI();
   }
 

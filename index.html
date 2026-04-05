@@ -157,8 +157,20 @@
       <button id="hist-next-month" class="month-nav-btn">▶</button>
     </div>
 
-    <div class="history-actions" style="display: flex; justify-content: flex-end; padding: 0 16px 12px;">
-      <button id="toggle-select-mode-btn" class="action-btn" style="font-size: 0.8rem; padding: 6px 12px;">✅ 選択モードを開始</button>
+    <div class="history-actions" style="display: flex; flex-direction: column; gap: 8px; padding: 0 16px 12px;">
+      <div style="display: flex; justify-content: flex-end;">
+        <button id="toggle-select-mode-btn" class="action-btn" style="font-size: 0.8rem; padding: 6px 12px;">✅ 選択モードを開始</button>
+      </div>
+      <div id="bulk-select-container" class="hidden" style="background: var(--bg-card); padding: 12px; border-radius: var(--radius-md); border: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 8px; transition: var(--transition-normal);">
+        <div style="font-size: 0.8rem; font-weight: bold; color: var(--text-secondary);">🔍 一括選択フィルタ</div>
+        <div style="display: flex; gap: 8px;">
+          <select id="bulk-category-select" class="setting-input" style="flex: 1; min-width: 0; padding: 8px;">
+            <option value="">全カテゴリ</option>
+          </select>
+          <input type="text" id="bulk-keyword-input" class="setting-input" placeholder="キーワード" style="flex: 1; min-width: 0; padding: 8px;">
+        </div>
+        <button id="bulk-select-btn" class="action-btn" style="background: var(--accent-cyan); color: #fff; border: none; margin-top: 4px;">条件に合うものを全選択</button>
+      </div>
     </div>
 
     <div id="history-list" class="history-list"></div>
