@@ -461,6 +461,12 @@
     $('#toggle-select-mode-btn').addEventListener('click', toggleHistorySelectMode);
     $('#selection-clear-btn').addEventListener('click', clearHistorySelection);
     $('#bulk-select-btn').addEventListener('click', handleBulkSelect);
+    $('#bulk-category-select').addEventListener('change', handleBulkSelect);
+    $('#bulk-keyword-input').addEventListener('input', () => {
+      // Debounce slightly or just call
+      if (window.bulkTimeout) clearTimeout(window.bulkTimeout);
+      window.bulkTimeout = setTimeout(handleBulkSelect, 300);
+    });
 
     // Confirm
     $('#confirm-cancel').addEventListener('click', closeConfirm);
